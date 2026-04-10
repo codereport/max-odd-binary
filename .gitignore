@@ -3,7 +3,6 @@ node_modules/
 build/
 __pycache__/
 *.pyc
-benchmark_*.png
 benchmark_cache.json
 logos/cpp.png
 aplcore
