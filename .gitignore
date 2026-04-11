@@ -6,3 +6,4 @@ __pycache__/
 benchmark_cache.json
 logos/cpp.png
 aplcore
+tools/

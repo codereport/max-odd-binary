@@ -709,6 +709,161 @@ def bench_python_sort():
         os.unlink(path)
 
 
+# ─────────────────────────── Benchmark: Smalltalk (Squeak) ──────
+
+
+_squeak_cache = None
+
+
+def _find_squeak():
+    """Return (vm, image) tuple or (None, None) if Squeak is not available.
+
+    Detection order:
+      1. SQUEAK_IMAGE env var (pointing to a prepared .image file)
+      2. tools/Squeak*/shared/bench.image in the repo (auto-prepared)
+      3. Squeak VM on PATH + .image next to the binary
+    A fresh Squeak image has a Welcome dialog that blocks headless execution,
+    so we auto-prepare a clean ``bench.image`` on first use.
+    """
+    global _squeak_cache
+    if _squeak_cache is not None:
+        return _squeak_cache
+
+    import glob as _glob
+
+    def _try(vm, image):
+        if vm and image and os.path.isfile(image):
+            return vm, image
+        return None
+
+    # 1. Explicit env var
+    env_image = os.environ.get("SQUEAK_IMAGE", "")
+    vm_env = find_cmd("squeak")
+    result = _try(vm_env, env_image)
+
+    # 2. Local tools/ bundle in the repo
+    if not result:
+        bundles = sorted(_glob.glob(str(ROOT / "tools" / "Squeak*" / "bin" / "squeak")))
+        for vm_path in bundles:
+            bundle = os.path.dirname(os.path.dirname(vm_path))
+            bench_img = os.path.join(bundle, "shared", "bench.image")
+            if os.path.isfile(bench_img):
+                result = (vm_path, bench_img)
+                break
+            stock = sorted(_glob.glob(os.path.join(bundle, "shared", "*.image")))
+            if stock:
+                result = _prepare_squeak_image(vm_path, stock[-1])
+                break
+
+    # 3. squeak on PATH, look for .image near the binary
+    if not result and vm_env:
+        vm_dir = os.path.dirname(os.path.realpath(vm_env))
+        for pattern in [
+            os.path.join(vm_dir, "..", "shared", "bench.image"),
+            os.path.join(vm_dir, "..", "shared", "*.image"),
+            os.path.join(vm_dir, "*.image"),
+        ]:
+            hits = sorted(_glob.glob(pattern))
+            if hits:
+                result = (vm_env, hits[-1])
+                break
+
+    if result:
+        _squeak_cache = result
+        return result
+
+    _squeak_cache = (None, None)
+    return _squeak_cache
+
+
+def _prepare_squeak_image(vm, stock_image):
+    """Create a bench.image from a stock Squeak image by dismissing the Welcome dialog."""
+    shared = os.path.dirname(stock_image)
+    bench_img = os.path.join(shared, "bench.image")
+    bench_chg = os.path.join(shared, "bench.changes")
+    stock_chg = stock_image.replace(".image", ".changes")
+
+    import shutil
+    shutil.copy2(stock_image, bench_img)
+    if os.path.isfile(stock_chg):
+        shutil.copy2(stock_chg, bench_chg)
+
+    setup = write_temp(".st", (
+        "World submorphs do: [:m | m delete].\n"
+        "SmalltalkImage current snapshot: true andQuit: true.\n"
+    ))
+    try:
+        _, err, rc = run_cmd([vm, bench_img, setup], timeout=30)
+        if rc == 0 and os.path.isfile(bench_img):
+            print("    prepared bench.image (dismissed Welcome dialog)")
+            return vm, bench_img
+        print(f"    WARNING: failed to prepare Squeak bench.image (rc={rc})")
+        if err:
+            for line in err.strip().splitlines()[:3]:
+                print(f"        {line}")
+    finally:
+        os.unlink(setup)
+    return None
+
+
+def _run_squeak_bench(st_code):
+    """Run a Smalltalk benchmark script in headless Squeak, return seconds/iter or None."""
+    vm, image = _find_squeak()
+    if not vm:
+        return None
+    path = write_temp(".st", st_code)
+    try:
+        out, err, rc = run_cmd([vm, "-vm-display-null", image, path], timeout=120)
+        if rc != 0:
+            if err:
+                for line in err.strip().splitlines()[:3]:
+                    print(f"        squeak stderr: {line}")
+            return None
+        return parse_number(out)
+    finally:
+        os.unlink(path)
+
+
+def bench_smalltalk_sort():
+    code = (
+        "| input n t0 t1 stream |\n"
+        "stream := '' writeStream.\n"
+        f"{INPUT_LEN // 2} timesRepeat: [stream nextPutAll: '01'].\n"
+        "input := stream contents.\n"
+        f"n := {N_ITERS}.\n"
+        "input sorted reverse join allButFirst , $1.\n"
+        "t0 := Time utcMicrosecondClock.\n"
+        "n timesRepeat: [input sorted reverse join allButFirst , $1].\n"
+        "t1 := Time utcMicrosecondClock.\n"
+        "FileStream stdout nextPutAll: ((t1 - t0) asFloat / n / 1000000) printString; lf.\n"
+        "Smalltalk quitPrimitive.\n"
+    )
+    return _run_squeak_bench(code)
+
+
+def bench_smalltalk_count():
+    code = (
+        "| input n t0 t1 stream ones zeros |\n"
+        "stream := '' writeStream.\n"
+        f"{INPUT_LEN // 2} timesRepeat: [stream nextPutAll: '01'].\n"
+        "input := stream contents.\n"
+        f"n := {N_ITERS}.\n"
+        "ones := (input count: [:e | e = $1]) - 1.\n"
+        "zeros := input size - ones - 1.\n"
+        "(String new: ones withAll: $1) , (String new: zeros withAll: $0) , $1.\n"
+        "t0 := Time utcMicrosecondClock.\n"
+        "n timesRepeat: [\n"
+        "    ones := (input count: [:e | e = $1]) - 1.\n"
+        "    zeros := input size - ones - 1.\n"
+        "    (String new: ones withAll: $1) , (String new: zeros withAll: $0) , $1\n"
+        "].\n"
+        "t1 := Time utcMicrosecondClock.\n"
+        "FileStream stdout nextPutAll: ((t1 - t0) asFloat / n / 1000000) printString; lf.\n"
+        "Smalltalk quitPrimitive.\n"
+    )
+    return _run_squeak_bench(code)
+
+
 # ─────────────────────────── Logo: C++ ──────────────────────────
 
 
@@ -962,6 +1117,7 @@ def generate_html(all_results, output_path):
         "D": "d",
         "Python": "python",
         "Julia": "julia",
+        "Smalltalk": "smalltalk",
     }
 
     sol_map = {}
@@ -2686,6 +2842,38 @@ SOLUTIONS = [
             "  t = @elapsed for _ in 1:N\n"
             "      maximum_odd_binary(input)  # O(n) count + string concat\n"
             "  end"
+        ),
+    ),
+    dict(
+        name="Smalltalk",
+        code="sort+reverse",
+        bytes=None,
+        color="#3b6ea1",
+        logo="smalltalk",
+        source_code="aString sorted reverse join\n  allButFirst , $1",
+        bench=bench_smalltalk_sort,
+        script=(
+            "  t0 := Time utcMicrosecondClock.\n"
+            "  N timesRepeat: [input sorted reverse join allButFirst , $1].\n"
+            "  t1 := Time utcMicrosecondClock.\n"
+            "  Squeak 6.0 — headless, µs-precision timer"
+        ),
+    ),
+    dict(
+        name="Smalltalk",
+        code="count+construct",
+        bytes=None,
+        color="#3b6ea1",
+        logo="smalltalk",
+        source_code="ones := (s count: [:e | e = $1]) - 1.\nzeros := s size - ones - 1.\n(String new: ones withAll: $1),\n(String new: zeros withAll: $0), $1",
+        bench=bench_smalltalk_count,
+        script=(
+            "  t0 := Time utcMicrosecondClock.\n"
+            "  N timesRepeat: [\n"
+            "      ones := (input count: [:e | e = $1]) - 1.\n"
+            "      ... build string from counts\n"
+            "  ].\n"
+            "  t1 := ... O(n) counting, µs-precision timer"
         ),
     ),
     dict(
