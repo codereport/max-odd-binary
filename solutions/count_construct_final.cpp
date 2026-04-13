@@ -16,7 +16,7 @@ auto maximum_odd_binary(std::string_view s) -> std::string
         std::memcpy(&word, p + i, 8);
         uint64_t mask = word ^ 0x3131313131313131ULL;
         mask = (~mask & (mask - 0x0101010101010101ULL)) & 0x8080808080808080ULL;
-        n += __builtin_popcountll(mask) >> 3;
+        n += __builtin_popcountll(mask);
     }
     for (; i < len; ++i) n += (p[i] == '1'); 
     if (n == 0) return "";

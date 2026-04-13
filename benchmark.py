@@ -387,6 +387,7 @@ def bench_cpp(name, func_body):
         src = (
             "#include <algorithm>\n"
             "#include <chrono>\n"
+            "#include <cstdint>\n"
             "#include <cstring>\n"
             "#include <iomanip>\n"
             "#include <iostream>\n"
@@ -1670,6 +1671,7 @@ def generate_html(all_results, output_path):
   <button class="approach-filter active" style="--ab:#58a6ff" onclick="toggleApproachFilter('sort', this)">Sort + Rotate</button>
   <button class="approach-filter active" style="--ab:#3fb950" onclick="toggleApproachFilter('partition', this)">Partition</button>
   <button class="approach-filter active" style="--ab:#f85149" onclick="toggleApproachFilter('count', this)">Count + Construct</button>
+  <button class="approach-filter active" style="--ab:#d2a8ff" onclick="toggleApproachFilter('loop', this)">Loop</button>
 </div>
 
 <!-- Detail view -->
@@ -2842,6 +2844,41 @@ SOLUTIONS = [
         ),
         script=(
             "  // O(n) count + resize_and_overwrite + memset\n"
+            "  for (int i = 0; i < N; ++i)\n"
+            "    result = maximum_odd_binary(input);"
+        ),
+    ),
+    dict(
+        name="C++",
+        code="count+construct 4",
+        bytes=None,
+        color="#659ad2",
+        logo="cpp_logo",
+        source_code="auto mob(std::string_view s) -> std::string {\n  size_t n = 0;\n  const char* p = s.data();\n  size_t len = s.size(), i = 0;\n  for (; i + 8 <= len; i += 8) {\n    uint64_t word;\n    std::memcpy(&word, p + i, 8);\n    uint64_t mask = word ^ 0x3131313131313131ULL;\n    mask = (~mask & (mask - 0x0101010101010101ULL))\n           & 0x8080808080808080ULL;\n    n += __builtin_popcountll(mask);\n  }\n  for (; i < len; ++i) n += (p[i] == '1');\n  std::string out;\n  out.resize_and_overwrite(len,\n    [n](char* buf, size_t sz) noexcept {\n      std::memset(buf, '1', n - 1);\n      std::memset(buf + n - 1, '0', sz - n);\n      buf[sz - 1] = '1';\n      return sz;\n    });\n  return out;\n}",
+        bench=lambda: bench_cpp(
+            "count_construct4",
+            "size_t n = 0;\n"
+            "  const char* p = s.data();\n"
+            "  size_t len = s.size(), i = 0;\n"
+            "  for (; i + 8 <= len; i += 8) {\n"
+            "    uint64_t word;\n"
+            "    std::memcpy(&word, p + i, 8);\n"
+            "    uint64_t mask = word ^ 0x3131313131313131ULL;\n"
+            "    mask = (~mask & (mask - 0x0101010101010101ULL)) & 0x8080808080808080ULL;\n"
+            "    n += __builtin_popcountll(mask);\n"
+            "  }\n"
+            "  for (; i < len; ++i) n += (p[i] == '1');\n"
+            "  std::string out;\n"
+            "  out.resize_and_overwrite(s.length(), [n](char* buf, size_t sz) noexcept {\n"
+            "    std::memset(buf, '1', n - 1);\n"
+            "    std::memset(buf + n - 1, '0', sz - n);\n"
+            "    buf[sz - 1] = '1';\n"
+            "    return sz;\n"
+            "  });\n"
+            "  s = std::move(out);",
+        ),
+        script=(
+            "  // O(n) SWAR popcount + resize_and_overwrite\n"
             "  for (int i = 0; i < N; ++i)\n"
             "    result = maximum_odd_binary(input);"
         ),
