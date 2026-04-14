@@ -1816,10 +1816,13 @@ def generate_html(all_results, output_path):
 const BENCH = {json.dumps(json_payload, ensure_ascii=False)};
 const SIZES = BENCH.sizes;
 const SOLS  = BENCH.solutions;
-const HIDDEN_BY_DEFAULT = new Set(['TinyAPL', 'Kap', 'Smalltalk']);
-const enabled = new Set(SOLS.map((_, i) => i).filter(i => !HIDDEN_BY_DEFAULT.has(SOLS[i].name)));
-const enabledApproaches = new Set(['sort', 'partition', 'count', 'loop']);
+const SLOW_THRESH_S = 50e-6;
 let currentSize = SIZES.includes(1000) ? '1000' : String(SIZES[0]);
+const enabled = new Set(SOLS.map((_, i) => i).filter(i => {{
+  const sd = SOLS[i].by_size[currentSize];
+  return sd && sd.median_s <= SLOW_THRESH_S;
+}}));
+const enabledApproaches = new Set(['sort', 'partition', 'count', 'loop']);
 let barChart, lineChart;
 
 function fmtTime(s) {{
@@ -3341,8 +3344,8 @@ def main():
         default_size = 1_000
         results = cached.get(default_size) or next(iter(cached.values()))
         generate_chart(results, ROOT / "img" / "benchmark_all.png")
-        results_filtered = [r for r in results if r["name"] not in ("TinyAPL", "Kap", "Smalltalk")]
-        generate_chart(results_filtered, ROOT / "img" / "benchmark_no_tinyapl.png")
+        results_filtered = [r for r in results if r["time"] <= 50e-6]
+        generate_chart(results_filtered, ROOT / "img" / "benchmark_fast.png")
         generate_html(cached, ROOT / "benchmark.html")
         return
 
@@ -3398,8 +3401,8 @@ def main():
 
     print("\nGenerating outputs...")
     generate_chart(results, ROOT / "img" / "benchmark_all.png")
-    results_filtered = [r for r in results if r["name"] not in ("TinyAPL", "Kap", "Smalltalk")]
-    generate_chart(results_filtered, ROOT / "img" / "benchmark_no_tinyapl.png")
+    results_filtered = [r for r in results if r["time"] <= 50e-6]
+    generate_chart(results_filtered, ROOT / "img" / "benchmark_fast.png")
     generate_html(all_results, ROOT / "benchmark.html")
 
 
