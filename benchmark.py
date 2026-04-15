@@ -1243,16 +1243,29 @@ def _shiki_highlight(snippets):
 
 def generate_html(all_results, output_path):
     """Create a self-contained interactive HTML benchmark page with multi-size support."""
-    import base64
     import json
 
+    _LOGO_URLS = {
+        "apl":                   "apl.png",
+        "bqn":                   "bqn.svg",
+        "c_logo":                "c.png",
+        "cpp_logo":              "cpp.png",
+        "dlang_logo":            "d.png",
+        "j":                     "j.svg",
+        "javascript":            "javascript.png",
+        "julia_logo_darkmode":   "julia_darkmode.png",
+        "kap":                   "kap_darkmode.png",
+        "nim_logo":              "nim.png",
+        "python_logo":           "python.png",
+        "rust_logo_darkmode":    "rust_darkmode.png",
+        "smalltalk":             "pharo.png",
+        "tinyapl":               "tinyapl.svg",
+        "uiua":                  "uiua.png",
+    }
+
     def _logo_b64(logo_key):
-        for ext in (".png", ".svg"):
-            p = LOGOS_DIR / f"{logo_key}{ext}"
-            if p.exists():
-                data = p.read_bytes()
-                mime = "image/png" if ext == ".png" else "image/svg+xml"
-                return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+        if logo_key in _LOGO_URLS:
+            return f"https://raw.githubusercontent.com/codereport/logos/main/{_LOGO_URLS[logo_key]}"
         return ""
 
     sizes = sorted(all_results.keys())
@@ -1861,7 +1874,7 @@ function buildControls() {{
     langs.find(l => l.name === d.name).indices.push(i);
   }});
   langs.forEach(lang => {{
-    const startOn = !HIDDEN_BY_DEFAULT.has(lang.name);
+    const startOn = lang.indices.some(i => enabled.has(i));
     if (startOn) enabledLangs.add(lang.name);
     else lang.indices.forEach(i => enabled.delete(i));
     const chip = document.createElement('button');
