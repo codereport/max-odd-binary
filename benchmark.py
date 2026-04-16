@@ -440,8 +440,7 @@ def bench_cpp(name, func_body):
 
 _d_bin_cache = {}
 
-
-def bench_d(name, func_body):
+def bench_d(name, func_body=None, *, mode="dynamic", full_function=None):
     compiler = find_cmd("ldc2")
     if not compiler:
         ldc_home = Path.home() / "dlang"
@@ -454,52 +453,76 @@ def bench_d(name, func_body):
 
     if name not in _d_bin_cache:
         BUILD_DIR.mkdir(exist_ok=True)
-        src = (
-            "import core.time;\n"
-            "import std.algorithm;\n"
-            "import std.datetime.stopwatch;\n"
-            "import std.stdio;\n"
-            "import std.range;\n"
-            "import std.array;\n"
-            "import std.string : representation;\n\n"
-            "auto maximumOddBinary(dchar[] s){\n"
-            f"  {func_body}\n"
-            "  return s;\n"
-            "}\n\n"
-            "int main() {\n"
-            f'  dchar[] input = cast(dchar[])"01".repeat({INPUT_LEN // 2}).join.array;\n'
-            f"  enum n = {N_ITERS};\n"
-            "  dchar[] result;\n"
-            "  auto sw = StopWatch(AutoStart.yes);\n"
-            "  foreach(i; 0 .. n)\n"
-            "    result = maximumOddBinary(input.dup);\n"
-            "  sw.stop();\n"
-            "  double dur = sw.peek.total!`nsecs`;\n"
-            "  writeln(dur / (1e9 * n));\n"
-            "  if (result.length == 0) return 1;\n"
-            "  return 0;\n"
-            "}\n"
-        )
+
+        if mode == "dynamic":
+            src = (
+                "import core.time;\n"
+                "import std.algorithm;\n"
+                "import std.datetime.stopwatch;\n"
+                "import std.stdio;\n"
+                "import std.range;\n"
+                "import std.array;\n"
+                "import std.string : representation;\n\n"
+                "auto maximumOddBinary(dchar[] s) {\n"
+                f"  {func_body}\n"
+                "  return s;\n"
+                "}\n\n"
+                "int main() {\n"
+                f'  dchar[] input = cast(dchar[])"01".repeat({INPUT_LEN // 2}).join.array;\n'
+                f"  enum n = {N_ITERS};\n"
+                "  dchar[] result;\n"
+                "  auto sw = StopWatch(AutoStart.yes);\n"
+                "  foreach (i; 0 .. n)\n"
+                "    result = maximumOddBinary(input.dup);\n"
+                "  sw.stop();\n"
+                "  double dur = sw.peek.total!`nsecs`;\n"
+                "  writeln(dur / (1e9 * n));\n"
+                "  if (result.length == 0) return 1;\n"
+                "  return 0;\n"
+                "}\n"
+            )
+
+        elif mode == "static_char":
+            src = (
+                "import std.datetime.stopwatch;\n"
+                "import std.stdio;\n\n"
+                + full_function +
+                "\n\n"
+                "int main() {\n"
+                f"  char[{INPUT_LEN}] input;\n"
+                f"  foreach (i; 0 .. {INPUT_LEN // 2}) {{ input[2 * i] = '0'; input[2 * i + 1] = '1'; }}\n"
+                f"  enum n = {N_ITERS};\n"
+                f"  char[{INPUT_LEN}] result;\n"
+                "  auto sw = StopWatch(AutoStart.yes);\n"
+                "  foreach (i; 0 .. n)\n"
+                "    result = maxOddBinaryChars(input);\n"
+                "  sw.stop();\n"
+                "  double dur = sw.peek.total!`nsecs`;\n"
+                "  writeln(dur / (1e9 * n));\n"
+                "  if (result.length == 0) return 1;\n"
+                "  return 0;\n"
+                "}\n"
+            )
+        else:
+            raise ValueError(f"unknown D bench mode: {mode}")
+
         src_path = BUILD_DIR / f"bench_{name}.d"
         bin_path = BUILD_DIR / f"bench_{name}"
         src_path.write_text(src)
+
         _, cerr, crc = run_cmd(
-            [
-                compiler,
-                "-O5",
-                "-release",
-                f"-of={str(bin_path)}",
-                str(src_path),
-            ]
+            [compiler, "-O5", "-release", f"-of={str(bin_path)}", str(src_path)]
         )
         if crc != 0:
             _d_bin_cache[name] = None
             return None
+
         _d_bin_cache[name] = str(bin_path)
 
     bin_path = _d_bin_cache[name]
     if bin_path is None:
         return None
+
     out, _, rc = run_cmd([bin_path])
     return parse_number(out) if rc == 0 else None
 
@@ -508,45 +531,80 @@ def bench_d(name, func_body):
 
 _rust_bin_cache = {}
 
-
-def bench_rust(name, func_body):
+def bench_rust(name, func_body=None, *, mode="vec", full_function=None):
     compiler = find_cmd("rustc")
     if not compiler:
         return None
 
     if name not in _rust_bin_cache:
         BUILD_DIR.mkdir(exist_ok=True)
-        src = (
-            "use std::time::Instant;\n\n"
-            "fn maximum_odd_binary(mut s: Vec<u8>) -> Vec<u8> {\n"
-            f"    {func_body}\n"
-            "    s\n"
-            "}\n\n"
-            "fn main() {\n"
-            f'    let input: Vec<u8> = "01".repeat({INPUT_LEN // 2}).into_bytes();\n'
-            f"    let n = {N_ITERS};\n"
-            "    let mut result = Vec::new();\n"
-            "    let start = Instant::now();\n"
-            "    for _ in 0..n {\n"
-            "        result = maximum_odd_binary(input.clone());\n"
-            "    }\n"
-            "    let elapsed = start.elapsed().as_secs_f64();\n"
-            '    println!("{}", elapsed / n as f64);\n'
-            "    if result.is_empty() { std::process::exit(1); }\n"
-            "}\n"
-        )
+
+        if mode == "vec":
+            src = (
+                "use std::time::Instant;\n\n"
+                "fn maximum_odd_binary(mut s: Vec<u8>) -> Vec<u8> {\n"
+                f"    {func_body}\n"
+                "    s\n"
+                "}\n\n"
+                "fn main() {\n"
+                f'    let input: Vec<u8> = "01".repeat({INPUT_LEN // 2}).into_bytes();\n'
+                f"    let n = {N_ITERS};\n"
+                "    let mut result = Vec::new();\n"
+                "    let start = Instant::now();\n"
+                "    for _ in 0..n {\n"
+                "        result = maximum_odd_binary(input.clone());\n"
+                "    }\n"
+                "    let elapsed = start.elapsed().as_secs_f64();\n"
+                '    println!("{}", elapsed / n as f64);\n'
+                "    if result.is_empty() { std::process::exit(1); }\n"
+                "}\n"
+            )
+
+        elif mode == "array":
+            if not full_function:
+                return None
+
+            src = (
+                "use std::time::Instant;\n\n"
+                f"{full_function}\n\n"
+                "fn main() {\n"
+                f"    let mut input = [b'0'; {INPUT_LEN}];\n"
+                f"    for i in 0..{INPUT_LEN // 2} {{\n"
+                "        input[2 * i] = b'0';\n"
+                "        input[2 * i + 1] = b'1';\n"
+                "    }\n"
+                f"    let n = {N_ITERS};\n"
+                f"    let mut result = [0u8; {INPUT_LEN}];\n"
+                "    let start = Instant::now();\n"
+                "    for _ in 0..n {\n"
+                f"        result = max_odd_binary::<{INPUT_LEN}>(input);\n"
+                "    }\n"
+                "    let elapsed = start.elapsed().as_secs_f64();\n"
+                '    println!("{}", elapsed / n as f64);\n'
+                "    if result.is_empty() { std::process::exit(1); }\n"
+                "}\n"
+            )
+
+        else:
+            raise ValueError(f"unknown Rust bench mode: {mode}")
+
         src_path = BUILD_DIR / f"bench_{name}.rs"
         bin_path = BUILD_DIR / f"bench_{name}"
         src_path.write_text(src)
-        _, cerr, crc = run_cmd([compiler, "-C", "opt-level=3", "-o", str(bin_path), str(src_path)])
+
+        _, cerr, crc = run_cmd(
+            [compiler, "-C", "opt-level=3", "-o", str(bin_path), str(src_path)]
+        )
         if crc != 0:
             _rust_bin_cache[name] = None
             return None
+
         _rust_bin_cache[name] = str(bin_path)
 
     bin_path = _rust_bin_cache[name]
     if bin_path is None:
         return None
+
     out, _, rc = run_cmd([bin_path])
     return parse_number(out) if rc == 0 else None
 
@@ -3014,6 +3072,66 @@ SOLUTIONS = [
         ),
     ),
     dict(
+        name="Rust",
+        code="count+construct+array",
+        bytes=None,
+        color="#dea584",
+        logo="rust_logo_darkmode",
+        source_code=(
+            "const fn max_odd_binary<const N: usize>(bits: [u8; N]) -> [u8; N] {\n"
+            "    let mut ones = 0usize;\n"
+            "    let mut i = 0usize;\n"
+            "    while i < N {\n"
+            "        if bits[i] == b'1' {\n"
+            "            ones += 1;\n"
+            "        }\n"
+            "        i += 1;\n"
+            "    }\n"
+            "\n"
+            "    let mut out = [b'0'; N];\n"
+            "    let mut j = 0usize;\n"
+            "    while j + 1 < ones {\n"
+            "        out[j] = b'1';\n"
+            "        j += 1;\n"
+            "    }\n"
+            "    out[N - 1] = b'1';\n"
+            "    out\n"
+            "}"
+        ),
+        bench=lambda: bench_rust(
+            "rust_count_array",
+            mode="array",
+            full_function=(
+                "const fn max_odd_binary<const N: usize>(bits: [u8; N]) -> [u8; N] {\n"
+                "    let mut ones = 0usize;\n"
+                "    let mut i = 0usize;\n"
+                "    while i < N {\n"
+                "        if bits[i] == b'1' {\n"
+                "            ones += 1;\n"
+                "        }\n"
+                "        i += 1;\n"
+                "    }\n"
+                "\n"
+                "    let mut out = [b'0'; N];\n"
+                "    let mut j = 0usize;\n"
+                "    while j + 1 < ones {\n"
+                "        out[j] = b'1';\n"
+                "        j += 1;\n"
+                "    }\n"
+                "    out[N - 1] = b'1';\n"
+                "    out\n"
+                "}\n"
+            ),
+        ),
+        script=(
+            "  let mut input = [b'0'; INPUT_LEN];\n"
+            "  let start = Instant::now();\n"
+            "  for _ in 0..N {\n"
+            "      result = max_odd_binary::<INPUT_LEN>(input);\n"
+            "  }"
+        ),
+    ),
+    dict(
         name="Nim",
         code="sort+rotate",
         bytes=None,
@@ -3084,6 +3202,69 @@ SOLUTIONS = [
             "  // O(n) count + construct, no sort\n"
             "  foreach(i;0 .. N) {\n"
             "      result = maximumOddBinary(input);\n"
+            "  }"
+        ),
+    ),
+    dict(
+        name="D",
+        code="count+construct+static",
+        bytes=None,
+        color="#b63838",
+        logo="dlang_logo",
+        source_code=(
+            "@safe pure nothrow @nogc\n"
+            "char[N] maxOddBinaryChars(size_t N)(scope const char[N] bits)\n"
+            "{\n"
+            "    size_t ones = 0;\n"
+            "    foreach (c; bits)\n"
+            "    {\n"
+            "        if (c == '1')\n"
+            "            ++ones;\n"
+            "    }\n"
+            "\n"
+            "    char[N] result;\n"
+            "    result[] = '0';\n"
+            "\n"
+            "    foreach (i; 0 .. ones - 1)\n"
+            "    {\n"
+            "        result[i] = '1';\n"
+            "    }\n"
+            "\n"
+            "    result[N - 1] = '1';\n"
+            "    return result;\n"
+            "}"
+        ),
+        bench=lambda: bench_d(
+            "d_count_static",
+            mode="static_char",
+            full_function=(
+                "@safe pure nothrow @nogc\n"
+                "char[N] maxOddBinaryChars(size_t N)(scope const char[N] bits)\n"
+                "{\n"
+                "    size_t ones = 0;\n"
+                "    foreach (c; bits)\n"
+                "    {\n"
+                "        if (c == '1')\n"
+                "            ++ones;\n"
+                "    }\n"
+                "\n"
+                "    char[N] result;\n"
+                "    result[] = '0';\n"
+                "\n"
+                "    foreach (i; 0 .. ones - 1)\n"
+                "    {\n"
+                "        result[i] = '1';\n"
+                "    }\n"
+                "\n"
+                "    result[N - 1] = '1';\n"
+                "    return result;\n"
+                "}\n"
+            ),
+        ),
+        script=(
+            f"  char[{INPUT_LEN}] input;\n"
+            "  foreach (i; 0 .. N) {\n"
+            "      result = maxOddBinaryChars(input);  // static array\n"
             "  }"
         ),
     ),
